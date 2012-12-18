@@ -96,16 +96,16 @@ float GeneticCloner::fitness() const
 	{
 		return 0.0f;
 	}
-	long value = (long)((1.0f - (float)lowestDifference / (float)totalData) * 10000.0f);
-	return value / 10.0f;
+	long long value = (long long)((1.0f - (float)lowestDifference / (float)totalData) * 10000.0f);
+	return value * (1.0f / 100.0f);
 }
 
-long GeneticCloner::improvements() const
+long long GeneticCloner::improvements() const
 {
 	return totalImprovements;
 }
 
-long GeneticCloner::mutations() const
+long long GeneticCloner::mutations() const
 {
 	return totalMutations;
 }
@@ -167,15 +167,15 @@ void drawFramebuffer(GLuint texture, GLuint program, GLuint vao, GLint texturePo
 	glBindVertexArrayOES(vao);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	glClearColor(1.0f, 0.0f, 0.0f, 1.0F);
+	glClearColor(1.0f, 0.0f, 0.0f, 1.0F); //XXX
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	//glActiveTexture(GL_TEXTURE0);
-	//glBindTexture(GL_TEXTURE_2D, texture);
-	//glUniform1i(texturePos, 0);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glUniform1i(texturePos, 0);
 
 	glUniformMatrix4fv(matrixPos, 1, GL_FALSE, matrix);
-	glDrawArrays(GL_TRIANGLES, 0, 3);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
 	glBindTexture(GL_TEXTURE_2D, 0);
 
@@ -188,7 +188,7 @@ void GeneticCloner::clearMutationWindow()
 {
 	glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
 
-	glClearColor(0.0f, 1.0f, 0.0f, 1.0F);
+	glClearColor(0.0f, 1.0f, 0.0f, 1.0F); //XXX
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 #ifdef GL_EXT_discard_framebuffer
@@ -201,7 +201,7 @@ void GeneticCloner::clearMutationWindow()
 
 	GLint matrixPos = glGetUniformLocation(textureProgram, "un_ProjectionMatrix");
 	GLint texturePos = glGetUniformLocation(textureProgram, "un_texture");
-	drawFramebuffer(drawTexture, textureProgram, textureVAO, texturePos, matrixPos, projectionMatrix); //XXX
+	drawFramebuffer(tempTexture, textureProgram, textureVAO, texturePos, matrixPos, projectionMatrix); //XXX
 }
 
 long long totalDifference(const QImage* sourceImage, int framebuffer, uchar* data)
@@ -640,19 +640,17 @@ void GeneticCloner::init(bb::cascades::Application* app)
 		glGenBuffers(2, vbos);
 
 		glBindBuffer(GL_ARRAY_BUFFER, vbos[0]);
-		GLfloat data[6 * 2] = {0,0,
-							   w,0,
-							   w,h,
-							   w,h,
-							   0,h,
-							   0,0};
+		GLfloat data[4 * 2] = {-w / 2,  h / 2,
+								w / 2,  h / 2,
+							   -w / 2, -h / 2,
+							    w / 2, -h / 2};
 		glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
 		glVertexAttribPointer(vertexAtt, 2, GL_FLOAT, GL_FALSE, 0, NULL);
 		glEnableVertexAttribArray(vertexAtt);
 
 		glBindBuffer(GL_ARRAY_BUFFER, vbos[1]);
-		data[0] = data[1] = data[3] = data[8] = data[10] = data[11] = 0;
-		data[2] = data[4] = data[5] = data[6] = data[7] = data[9] = 1;
+		data[0] = data[4] = data[5] = data[7] = 0;
+		data[1] = data[2] = data[3] = data[6] = 1;
 		glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
 		glVertexAttribPointer(uvAtt, 2, GL_FLOAT, GL_FALSE, 0, NULL);
 		glEnableVertexAttribArray(uvAtt);
@@ -676,10 +674,66 @@ void GeneticCloner::init(bb::cascades::Application* app)
 	initialized = true;
 }
 
+#define GENERATE_RANDOM_FLOAT (qrand() / (float)RAND_MAX)
+
 void GeneticCloner::updateImage()
 {
-	//TODO: set the scale to adjust the circle from max resolution to desired size (s = (random() * WIDTH / 3 + 1) / (WIDTH / 3 + 1)). Draw with GL_LINE_LOOP and circleSegCount
-	//TODO
+	emit mutationsChanged(++totalMutations);
+
+	Color color = Color::fromRGBA(	GENERATE_RANDOM_FLOAT * 255,
+									GENERATE_RANDOM_FLOAT * 255,
+									GENERATE_RANDOM_FLOAT * 255,
+									GENERATE_RANDOM_FLOAT * 0.8 + 0.05);
+	int width = glWindowSize.width();
+	QPointF loc(GENERATE_RANDOM_FLOAT * width, GENERATE_RANDOM_FLOAT * width);
+	float radius = floorf(GENERATE_RANDOM_FLOAT * width / 3.0f + 1.0f);
+
+	float scaleDiv = 1.0f / (width / 3.0f + 1.0f);
+	float scale = radius * scaleDiv;
+
+	GLint positionPos = glGetUniformLocation(circleProgram, "un_position");
+	GLint scalePos = glGetUniformLocation(circleProgram, "un_scale");
+	GLint matrixPos = glGetUniformLocation(circleProgram, "un_ProjectionMatrix");
+	GLint colorPos = glGetUniformLocation(circleProgram, "un_color");
+
+	glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
+
+	glClearColor(1.0f, 1.0f, 1.0f, 1.0F); //XXX
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	glUseProgram(circleProgram);
+	glBindVertexArrayOES(circleVAO);
+	glUniform2f(positionPos, (GLfloat)loc.x(), (GLfloat)loc.y());
+	glUniform1f(scalePos, scale);
+	glUniformMatrix4fv(matrixPos, 1, GL_FALSE, projectionMatrix);
+	glUniform4f(colorPos, color.red(), color.green(), color.blue(), color.alpha());
+	glDrawArrays(GL_LINE_LOOP, 0, circleSegCount);
+
+	long long difference = totalDifference(image, frameBuffer, tmpData);
+	if(difference < lowestDifference)
+	{
+		lowestDifference = difference;
+		emit fitnessChanged(fitness());
+		emit improvementsChanged(++totalImprovements);
+
+		circles.append(Circle(color, loc, radius));
+
+		drawFramebuffer(drawTexture, textureProgram, textureVAO, glGetUniformLocation(textureProgram, "un_ProjectionMatrix"), glGetUniformLocation(textureProgram, "un_texture"), projectionMatrix);
+	}
+	else
+	{
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		foreach(const Circle& c, circles)
+		{
+			glUniform2f(positionPos, (GLfloat)c.loc.x(), (GLfloat)c.loc.y());
+			glUniform1f(scalePos, c.radius * scaleDiv);
+			glUniform4f(colorPos, c.color.red(), c.color.green(), c.color.blue(), c.color.alpha());
+			glDrawArrays(GL_LINE_LOOP, 0, circleSegCount);
+		}
+	}
+
+	glBindVertexArrayOES(0);
+	glUseProgram(0);
 }
 
 /*

@@ -22,6 +22,13 @@ struct Circle
 	bb::cascades::Color color;
 	QPointF loc;
 	float radius;
+
+	Circle(const bb::cascades::Color& color, const QPointF& loc, float radius)
+	{
+		this->color = color;
+		this->loc = loc;
+		this->radius = radius;
+	}
 };
 
 class GeneticCloner : public QObject
@@ -29,16 +36,16 @@ class GeneticCloner : public QObject
     Q_OBJECT
 
     Q_PROPERTY(float fitness READ fitness NOTIFY fitnessChanged FINAL)
-    Q_PROPERTY(long improvements READ improvements NOTIFY improvementsChanged FINAL)
-    Q_PROPERTY(long mutations READ mutations NOTIFY mutationsChanged FINAL)
+    Q_PROPERTY(long long improvements READ improvements NOTIFY improvementsChanged FINAL)
+    Q_PROPERTY(long long mutations READ mutations NOTIFY mutationsChanged FINAL)
 
 public:
     GeneticCloner(bb::cascades::Application* app);
     ~GeneticCloner();
 
     float fitness() const;
-    long improvements() const;
-    long mutations() const;
+    long long improvements() const;
+    long long mutations() const;
 
     Q_INVOKABLE void toggleRunning();
 
@@ -46,8 +53,8 @@ public:
 
 Q_SIGNALS:
 	void fitnessChanged(float value);
-	void improvementsChanged(long value);
-	void mutationsChanged(long value);
+	void improvementsChanged(long long value);
+	void mutationsChanged(long long value);
 
 private Q_SLOTS:
 	void updateImage();
@@ -55,10 +62,10 @@ private Q_SLOTS:
 
 private:
 	bool initialized;
-	long totalMutations;
-	long totalImprovements;
-	long totalData;
-	long lowestDifference;
+	long long totalMutations;
+	long long totalImprovements;
+	long long totalData;
+	long long lowestDifference;
 	QList<Circle> circles;
 	QSize glWindowSize;
 	uchar* tmpData;
