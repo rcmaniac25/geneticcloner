@@ -92,9 +92,9 @@ private:
 	int circleSegCount;
 	int circleVAO;
 	int textureVAO;
-	float* projectionMatrix;
 	int tempTexture; //XXX
 
+	void drawFramebuffer();
 	void clearMutationWindow();
 
 	Q_DISABLE_COPY(GeneticCloner)

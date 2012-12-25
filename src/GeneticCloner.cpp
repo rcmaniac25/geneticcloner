@@ -37,7 +37,7 @@ GeneticCloner::GeneticCloner(bb::cascades::Application* app) : QObject(app),
 		initialized(false), totalMutations(0), totalImprovements(0), totalData(0), lowestDifference(0), circles(), glWindowSize(), tmpData(NULL), imagePath(),
 		originalImage(NULL), timer(NULL), image(NULL),
 		context(NULL), window(NULL), eglDisp(EGL_NO_DISPLAY), eglSurf(EGL_NO_SURFACE), eglCtx(EGL_NO_CONTEXT), eglConf(NULL),
-		frameBuffer(0), renderbuffer(0), drawTexture(0), circleProgram(0), textureProgram(0), circleSegCount(0), circleVAO(0), textureVAO(0), projectionMatrix(NULL)
+		frameBuffer(0), renderbuffer(0), drawTexture(0), circleProgram(0), textureProgram(0), circleSegCount(0), circleVAO(0), textureVAO(0)
 {
     QmlDocument* qml = QmlDocument::create("asset:///main.qml").parent(this).property("cloner", this);
 
@@ -65,7 +65,6 @@ GeneticCloner::~GeneticCloner()
 	timer->stop();
 	delete image;
 	delete[] tmpData;
-	delete[] projectionMatrix;
 	if (eglDisp != EGL_NO_DISPLAY)
 	{
 		eglMakeCurrent(eglDisp, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -160,21 +159,19 @@ void GeneticCloner::setImage(const QString& file)
 	}
 }
 
-void drawFramebuffer(GLuint texture, GLuint program, GLuint vao, GLint texturePos, GLint matrixPos, const GLfloat* matrix)
+void GeneticCloner::drawFramebuffer()
 {
-	glUseProgram(program);
+	glUseProgram(textureProgram);
 
-	glBindVertexArrayOES(vao);
+	glBindVertexArrayOES(textureVAO);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	glClearColor(1.0f, 0.0f, 0.0f, 1.0F); //XXX
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, texture);
-	glUniform1i(texturePos, 0);
+	glBindTexture(GL_TEXTURE_2D, drawTexture);
+	glUniform1i(glGetUniformLocation(textureProgram, "un_texture"), 0);
 
-	glUniformMatrix4fv(matrixPos, 1, GL_FALSE, matrix);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
 	glBindTexture(GL_TEXTURE_2D, 0);
@@ -188,7 +185,6 @@ void GeneticCloner::clearMutationWindow()
 {
 	glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
 
-	glClearColor(0.0f, 1.0f, 0.0f, 1.0F); //XXX
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 #ifdef GL_EXT_discard_framebuffer
@@ -199,9 +195,7 @@ void GeneticCloner::clearMutationWindow()
 	}
 #endif
 
-	GLint matrixPos = glGetUniformLocation(textureProgram, "un_ProjectionMatrix");
-	GLint texturePos = glGetUniformLocation(textureProgram, "un_texture");
-	drawFramebuffer(tempTexture, textureProgram, textureVAO, texturePos, matrixPos, projectionMatrix); //XXX
+	drawFramebuffer();
 }
 
 long long totalDifference(const QImage* sourceImage, int framebuffer, uchar* data)
@@ -300,8 +294,10 @@ GLuint compileProgram(const QString& vertShader, const QString& fragShader)
 	}
 	fshaderObject = glCreateShader(GL_FRAGMENT_SHADER);
 
-	const char* data = shader.toAscii().constData();
-	glShaderSource(fshaderObject, 1, (const GLchar* const*)&data, NULL);
+	QByteArray dataArray = shader.toAscii();
+	int dataSize = dataArray.length();
+	const char* data = dataArray.constData();
+	glShaderSource(fshaderObject, 1, (const GLchar* const*)&data, &dataSize);
 	glCompileShader(fshaderObject);
 
 	//Check for errors
@@ -336,8 +332,10 @@ GLuint compileProgram(const QString& vertShader, const QString& fragShader)
 	}
 	vshaderObject = glCreateShader(GL_VERTEX_SHADER);
 
-	data = shader.toAscii().constData();
-	glShaderSource(vshaderObject, 1, (const GLchar* const*)&data, NULL);
+	dataArray = shader.toAscii();
+	dataSize = dataArray.length();
+	data = dataArray.constData();
+	glShaderSource(vshaderObject, 1, (const GLchar* const*)&data, &dataSize);
 	glCompileShader(vshaderObject);
 
 	//Check for errors
@@ -495,6 +493,8 @@ void GeneticCloner::init(bb::cascades::Application* app)
 	int usage = SCREEN_USAGE_OPENGL_ES2;
 	int screenFormat = SCREEN_FORMAT_RGBX8888;
 	int z = 0x80000000; //Really small number
+	int w, h;
+	int bufferSize[] = {w = glWindowSize.width(), h = glWindowSize.height()};
 
 	//Setup OpenGL
 	eglDisp = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -514,12 +514,26 @@ void GeneticCloner::init(bb::cascades::Application* app)
 	screen_set_window_property_iv(window, SCREEN_PROPERTY_USAGE, &usage);
 	screen_set_window_property_iv(window, SCREEN_PROPERTY_FORMAT, &screenFormat);
 	screen_set_window_property_iv(window, SCREEN_PROPERTY_ZORDER, &z);
+	screen_set_window_property_iv(window, SCREEN_PROPERTY_BUFFER_SIZE, bufferSize);
 	screen_create_window_buffers(window, 2);
+
+	//Setup the window groups
+	QByteArray groupArr = fwc->windowGroup().toAscii();
+	QByteArray idArr = fwc->windowId().toAscii();
+
+	//Setup group and ID
+	screen_join_window_group(window, groupArr.constData());
+	screen_set_window_property_cv(window, SCREEN_PROPERTY_ID_STRING, idArr.length(), idArr.constData());
+
+	//Setup FWC
+	fwc->setWindowHandle(window);
 
 	//Set the remaining components so OpenGL operations can be performed
 	eglSurf = eglCreateWindowSurface(eglDisp, eglConf, window, NULL);
 
 	eglMakeCurrent(eglDisp, eglSurf, eglSurf, eglCtx);
+
+	eglSwapInterval(eglDisp, 1);
 
 	const char* extGL = (const char*)glGetString(GL_EXTENSIONS);
 #if defined(GL_IMG_multisampled_render_to_texture)
@@ -548,24 +562,17 @@ void GeneticCloner::init(bb::cascades::Application* app)
 	Q_ASSERT(glGenVertexArraysOES);
 #endif
 
-	eglSwapInterval(eglDisp, 1);
+	//Setup programs
+	circleProgram = compileProgram("./app/native/assets/circle.vert", "./app/native/assets/circle.frag");
+	textureProgram = compileProgram("./app/native/assets/texture.vert", "./app/native/assets/texture.frag");
 
-	//Setup FWC
-	fwc->setWindowHandle(window);
-
-	//Setup the window
-	QByteArray groupArr = fwc->windowGroup().toAscii();
-	QByteArray idArr = fwc->windowId().toAscii();
-
-	//Setup group and ID
-	screen_join_window_group(window, groupArr.constData());
-	screen_set_window_property_cv(window, SCREEN_PROPERTY_ID_STRING, idArr.length(), idArr.constData());
-
-	//Setup view and projection matrix
-	int w = glWindowSize.width();
-	int h = glWindowSize.height();
-	glViewport(0, 0, w, h);
-	projectionMatrix = pretentGlOrtho(0, w, 0, h, 0, 1);
+	GLfloat* projectionMatrix = pretentGlOrtho(0, w, 0, h, 0, 1);
+	glUseProgram(circleProgram);
+	glUniformMatrix4fv(glGetUniformLocation(circleProgram, "un_ProjectionMatrix"), 1, GL_FALSE, projectionMatrix);
+	glUseProgram(textureProgram);
+	glUniformMatrix4fv(glGetUniformLocation(textureProgram, "un_ProjectionMatrix"), 1, GL_FALSE, projectionMatrix);
+	glUseProgram(0);
+	delete[] projectionMatrix;
 
 	//Setup buffers
 	glGenRenderbuffers(1, (GLuint*)&renderbuffer);
@@ -617,10 +624,6 @@ void GeneticCloner::init(bb::cascades::Application* app)
 		Q_ASSERT(false);
 	}
 
-	//Setup programs
-	circleProgram = compileProgram("./app/native/assets/circle.vert", "./app/native/assets/circle.frag");
-	textureProgram = compileProgram("./app/native/assets/texture.vert", "./app/native/assets/texture.frag");
-
 	//Setup VAOs
 #ifdef GL_OES_vertex_array_object
 	GLint vertexAtt = glGetAttribLocation(circleProgram, "in_vertex");
@@ -649,8 +652,8 @@ void GeneticCloner::init(bb::cascades::Application* app)
 		glEnableVertexAttribArray(vertexAtt);
 
 		glBindBuffer(GL_ARRAY_BUFFER, vbos[1]);
-		data[0] = data[4] = data[5] = data[7] = 0;
-		data[1] = data[2] = data[3] = data[6] = 1;
+		data[0] = data[4] = data[5] = data[7] = 0.0f;
+		data[1] = data[2] = data[3] = data[6] = 1.0f;
 		glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
 		glVertexAttribPointer(uvAtt, 2, GL_FLOAT, GL_FALSE, 0, NULL);
 		glEnableVertexAttribArray(uvAtt);
@@ -660,7 +663,9 @@ void GeneticCloner::init(bb::cascades::Application* app)
 #endif
 
 	//Clear the screen
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glClearColor(1.0f, 1.0f, 1.0f, 1.0F);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	setImage("mona-lisa.png"); //Will clear the screen
 
@@ -678,6 +683,8 @@ void GeneticCloner::init(bb::cascades::Application* app)
 
 void GeneticCloner::updateImage()
 {
+	eglMakeCurrent(eglDisp, eglSurf, eglSurf, eglCtx);
+
 	emit mutationsChanged(++totalMutations);
 
 	Color color = Color::fromRGBA(	GENERATE_RANDOM_FLOAT * 255,
@@ -693,19 +700,16 @@ void GeneticCloner::updateImage()
 
 	GLint positionPos = glGetUniformLocation(circleProgram, "un_position");
 	GLint scalePos = glGetUniformLocation(circleProgram, "un_scale");
-	GLint matrixPos = glGetUniformLocation(circleProgram, "un_ProjectionMatrix");
 	GLint colorPos = glGetUniformLocation(circleProgram, "un_color");
 
 	glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
 
-	glClearColor(1.0f, 1.0f, 1.0f, 1.0F); //XXX
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	glUseProgram(circleProgram);
 	glBindVertexArrayOES(circleVAO);
 	glUniform2f(positionPos, (GLfloat)loc.x(), (GLfloat)loc.y());
 	glUniform1f(scalePos, scale);
-	glUniformMatrix4fv(matrixPos, 1, GL_FALSE, projectionMatrix);
 	glUniform4f(colorPos, color.red(), color.green(), color.blue(), color.alpha());
 	glDrawArrays(GL_LINE_LOOP, 0, circleSegCount);
 
@@ -717,8 +721,6 @@ void GeneticCloner::updateImage()
 		emit improvementsChanged(++totalImprovements);
 
 		circles.append(Circle(color, loc, radius));
-
-		drawFramebuffer(drawTexture, textureProgram, textureVAO, glGetUniformLocation(textureProgram, "un_ProjectionMatrix"), glGetUniformLocation(textureProgram, "un_texture"), projectionMatrix);
 	}
 	else
 	{
@@ -734,6 +736,10 @@ void GeneticCloner::updateImage()
 
 	glBindVertexArrayOES(0);
 	glUseProgram(0);
+
+	drawFramebuffer();
+
+	eglSwapBuffers(eglDisp, eglSurf);
 }
 
 /*
