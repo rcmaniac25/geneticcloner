@@ -62,11 +62,11 @@ Page {
                     
                     scalingMethod: ScalingMethod.AspectFit
                     
-                    preferredWidth: 300.0
-                    preferredHeight: 300.0
+                    preferredWidth: 256.0
+                    preferredHeight: 256.0
                     
-                    maxWidth: 300.0
-                    maxHeight: 300.0
+                    maxWidth: preferredWidth
+                    maxHeight: preferredHeight
                 }
             }
             

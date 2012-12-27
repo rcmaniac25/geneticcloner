@@ -135,6 +135,7 @@ void GeneticCloner::setImage(const QString& file)
 		QImage swapped = image->rgbSwapped();
 		QSize swappedSize = swapped.size();
 
+		tempTexture = 0;
 		glGenTextures(1, (GLuint*)&tempTexture);
 		glBindTexture(GL_TEXTURE_2D, tempTexture);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, swappedSize.width(), swappedSize.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, swapped.constBits());
@@ -169,7 +170,7 @@ void GeneticCloner::drawFramebuffer()
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, drawTexture);
+	glBindTexture(GL_TEXTURE_2D, tempTexture); //XXX
 	glUniform1i(glGetUniformLocation(textureProgram, "un_texture"), 0);
 
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -479,8 +480,39 @@ void GeneticCloner::init(bb::cascades::Application* app)
 {
 	ForeignWindowControl* fwc = app->scene()->findChild<ForeignWindowControl*>("mutatedFWC");
 
+	//Setup the window groups
 	fwc->setWindowId("GeneticClonerFWCId");
 	fwc->setWindowGroup(app->mainWindow()->groupId());
+
+	QByteArray groupArr = fwc->windowGroup().toAscii();
+	QByteArray idArr = fwc->windowId().toAscii();
+
+	int usage = SCREEN_USAGE_OPENGL_ES2;
+	int screenFormat = SCREEN_FORMAT_RGBX8888;
+	int z = 0x80000000; //Really small number
+	int w, h;
+	int bufferSize[] = {w = glWindowSize.width(), h = glWindowSize.height()};
+
+	//Setup Window
+	screen_create_context(&context, SCREEN_APPLICATION_CONTEXT);
+	screen_create_window_type(&window, context, SCREEN_CHILD_WINDOW);
+	screen_set_window_property_iv(window, SCREEN_PROPERTY_USAGE, &usage);
+	screen_set_window_property_iv(window, SCREEN_PROPERTY_FORMAT, &screenFormat);
+	screen_set_window_property_iv(window, SCREEN_PROPERTY_ZORDER, &z);
+
+	screen_set_window_property_iv(window, SCREEN_PROPERTY_BUFFER_SIZE, bufferSize);
+	screen_set_window_property_iv(window, SCREEN_PROPERTY_SIZE, bufferSize);
+	screen_set_window_property_iv(window, SCREEN_PROPERTY_SOURCE_SIZE, bufferSize);
+
+	//Setup group and ID
+	screen_join_window_group(window, groupArr.constData());
+	screen_set_window_property_cv(window, SCREEN_PROPERTY_ID_STRING, idArr.length(), idArr.constData());
+
+	//Setup FWC
+	fwc->setWindowHandle(window);
+
+	//Create window buffers
+	screen_create_window_buffers(window, 2);
 
 	//Setup OpenGL ES 2.0
 	EGLint attributes[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
@@ -490,11 +522,6 @@ void GeneticCloner::init(bb::cascades::Application* app)
 							EGL_SURFACE_TYPE,    EGL_WINDOW_BIT,
 							EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
 							EGL_NONE};
-	int usage = SCREEN_USAGE_OPENGL_ES2;
-	int screenFormat = SCREEN_FORMAT_RGBX8888;
-	int z = 0x80000000; //Really small number
-	int w, h;
-	int bufferSize[] = {w = glWindowSize.width(), h = glWindowSize.height()};
 
 	//Setup OpenGL
 	eglDisp = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -507,26 +534,6 @@ void GeneticCloner::init(bb::cascades::Application* app)
 	eglChooseConfig(eglDisp, attrib_list, &eglConf, 1, &numConfigs);
 
 	eglCtx = eglCreateContext(eglDisp, eglConf, EGL_NO_CONTEXT, attributes);
-
-	//Setup Window
-	screen_create_context(&context, SCREEN_APPLICATION_CONTEXT);
-	screen_create_window_type(&window, context, SCREEN_CHILD_WINDOW);
-	screen_set_window_property_iv(window, SCREEN_PROPERTY_USAGE, &usage);
-	screen_set_window_property_iv(window, SCREEN_PROPERTY_FORMAT, &screenFormat);
-	screen_set_window_property_iv(window, SCREEN_PROPERTY_ZORDER, &z);
-	screen_set_window_property_iv(window, SCREEN_PROPERTY_BUFFER_SIZE, bufferSize);
-	screen_create_window_buffers(window, 2);
-
-	//Setup the window groups
-	QByteArray groupArr = fwc->windowGroup().toAscii();
-	QByteArray idArr = fwc->windowId().toAscii();
-
-	//Setup group and ID
-	screen_join_window_group(window, groupArr.constData());
-	screen_set_window_property_cv(window, SCREEN_PROPERTY_ID_STRING, idArr.length(), idArr.constData());
-
-	//Setup FWC
-	fwc->setWindowHandle(window);
 
 	//Set the remaining components so OpenGL operations can be performed
 	eglSurf = eglCreateWindowSurface(eglDisp, eglConf, window, NULL);
@@ -666,6 +673,9 @@ void GeneticCloner::init(bb::cascades::Application* app)
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glClearColor(1.0f, 1.0f, 1.0f, 1.0F);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
+	glClearColor(1.0f, 1.0f, 1.0f, 1.0F);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	setImage("mona-lisa.png"); //Will clear the screen
 
@@ -687,9 +697,9 @@ void GeneticCloner::updateImage()
 
 	emit mutationsChanged(++totalMutations);
 
-	Color color = Color::fromRGBA(	GENERATE_RANDOM_FLOAT * 255,
-									GENERATE_RANDOM_FLOAT * 255,
-									GENERATE_RANDOM_FLOAT * 255,
+	Color color = Color::fromRGBA(	GENERATE_RANDOM_FLOAT,
+									GENERATE_RANDOM_FLOAT,
+									GENERATE_RANDOM_FLOAT,
 									GENERATE_RANDOM_FLOAT * 0.8 + 0.05);
 	int width = glWindowSize.width();
 	QPointF loc(GENERATE_RANDOM_FLOAT * width, GENERATE_RANDOM_FLOAT * width);
