@@ -96,6 +96,7 @@ private:
 
 	void drawFramebuffer();
 	void clearMutationWindow();
+	void createForeignWindow(const QString& group, const QString& id, int width, int height, int usage, int format);
 
 	Q_DISABLE_COPY(GeneticCloner)
 };

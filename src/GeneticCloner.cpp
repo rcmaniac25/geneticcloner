@@ -138,6 +138,10 @@ void GeneticCloner::setImage(const QString& file)
 		tempTexture = 0;
 		glGenTextures(1, (GLuint*)&tempTexture);
 		glBindTexture(GL_TEXTURE_2D, tempTexture);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, swappedSize.width(), swappedSize.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, swapped.constBits());
 		glBindTexture(GL_TEXTURE_2D, 0);
 
@@ -382,7 +386,7 @@ GLuint compileProgram(const QString& vertShader, const QString& fragShader)
 		return 0;
 	}
 
-#ifdef DEBUG
+#ifdef GC_DEBUG
 	//Validate program
 	glValidateProgram(program);
 
@@ -476,43 +480,57 @@ GLfloat* pretentGlOrtho(GLfloat left, GLfloat right, GLfloat bottom, GLfloat top
 	return matrix;
 }
 
-void GeneticCloner::init(bb::cascades::Application* app)
+void GeneticCloner::createForeignWindow(const QString& group, const QString& id, int width, int height, int usage, int format)
 {
-	ForeignWindowControl* fwc = app->scene()->findChild<ForeignWindowControl*>("mutatedFWC");
+	QByteArray groupArr = group.toAscii();
+	QByteArray idArr = id.toAscii();
 
-	//Setup the window groups
-	fwc->setWindowId("GeneticClonerFWCId");
-	fwc->setWindowGroup(app->mainWindow()->groupId());
+	Q_ASSERT(width > 0 && height > 0);
 
-	QByteArray groupArr = fwc->windowGroup().toAscii();
-	QByteArray idArr = fwc->windowId().toAscii();
-
-	int usage = SCREEN_USAGE_OPENGL_ES2;
-	int screenFormat = SCREEN_FORMAT_RGBX8888;
-	int z = 0x80000000; //Really small number
-	int w, h;
-	int bufferSize[] = {w = glWindowSize.width(), h = glWindowSize.height()};
-
-	//Setup Window
+	//Create the context and window
 	screen_create_context(&context, SCREEN_APPLICATION_CONTEXT);
 	screen_create_window_type(&window, context, SCREEN_CHILD_WINDOW);
-	screen_set_window_property_iv(window, SCREEN_PROPERTY_USAGE, &usage);
-	screen_set_window_property_iv(window, SCREEN_PROPERTY_FORMAT, &screenFormat);
-	screen_set_window_property_iv(window, SCREEN_PROPERTY_ZORDER, &z);
-
-	screen_set_window_property_iv(window, SCREEN_PROPERTY_BUFFER_SIZE, bufferSize);
-	screen_set_window_property_iv(window, SCREEN_PROPERTY_SIZE, bufferSize);
-	screen_set_window_property_iv(window, SCREEN_PROPERTY_SOURCE_SIZE, bufferSize);
 
 	//Setup group and ID
 	screen_join_window_group(window, groupArr.constData());
 	screen_set_window_property_cv(window, SCREEN_PROPERTY_ID_STRING, idArr.length(), idArr.constData());
 
-	//Setup FWC
-	fwc->setWindowHandle(window);
+	//Setup properties
+	int vis = 1;
+	screen_set_window_property_iv(window, SCREEN_PROPERTY_VISIBLE, &vis);
 
-	//Create window buffers
+	screen_set_window_property_iv(window, SCREEN_PROPERTY_USAGE, &usage);
+
+	screen_set_window_property_iv(window, SCREEN_PROPERTY_FORMAT, &format);
+
+	int z = 0x80000000; //Really small number
+	screen_set_window_property_iv(window, SCREEN_PROPERTY_ZORDER, &z);
+
+	int rect[4] = { 0, 0, 1, 1 };
+	screen_set_window_property_iv(window, SCREEN_PROPERTY_BUFFER_SIZE, rect + 2);
+
+	int dims[2] = { width, height };
+	screen_set_window_property_iv(window, SCREEN_PROPERTY_SOURCE_SIZE, dims);
+
+	int pos[2] = { -rect[2], -rect[3] };
+	screen_set_window_property_iv(window, SCREEN_PROPERTY_SOURCE_POSITION, pos);
+
+	//Create buffers
 	screen_create_window_buffers(window, 2);
+}
+
+void GeneticCloner::init(bb::cascades::Application* app)
+{
+	ForeignWindowControl* fwc = app->scene()->findChild<ForeignWindowControl*>("mutatedFWC");
+
+	int w, h;
+
+	//Setup the window groups
+	fwc->setWindowId("GeneticClonerFWCId");
+	fwc->setWindowGroup(app->mainWindow()->groupId());
+
+	//Create the window
+	createForeignWindow(fwc->windowGroup(), fwc->windowId(), w = glWindowSize.width(), h = glWindowSize.height(), SCREEN_USAGE_OPENGL_ES2, SCREEN_FORMAT_RGBX8888);
 
 	//Setup OpenGL ES 2.0
 	EGLint attributes[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
@@ -671,10 +689,10 @@ void GeneticCloner::init(bb::cascades::Application* app)
 
 	//Clear the screen
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	glClearColor(1.0f, 1.0f, 1.0f, 1.0F);
+	glClearColor(1.0f, 0.0f, 0.0f, 1.0F);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
-	glClearColor(1.0f, 1.0f, 1.0f, 1.0F);
+	glClearColor(0.0f, 1.0f, 0.0f, 1.0F);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	setImage("mona-lisa.png"); //Will clear the screen
